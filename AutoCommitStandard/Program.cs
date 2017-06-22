@@ -15,30 +15,23 @@ namespace AutoCommit
         static bool dirty = false, doAdd = true, doPush = false, autoCommit = false;
         static Dictionary<string, string> config = new Dictionary<string, string>();
         static string watchPath = string.Empty, projectPath = string.Empty;
-        static ManualResetEventSlim resetEvent = new ManualResetEventSlim(false);
+        static ManualResetEventSlim resetEvent;
         static FileSystemWatcher watcher;
         static Timer timer;
         static string author, commitMessage;
         static int commitInterval;
 
-        static int Main(string[] args)
+        static void Main(string[] args)
         {
             var configFile = CONFIG_FILE_NAME;
 
             if (args.Length > 0)
-                configFile = args[0]; // config name
+                configFile = args[0]; // conf name
 
-            if(!ReadConfig(configFile))
-            {
-                Log($"Error reading config file... {configFile} does not exist.");
-                return 1;
-            }
+            ReadConfig(configFile);
 
             if (!Init())
-            {
-                Log($"Error during initalization... aborting");
-                return 2;
-            }   
+                return;
 
             Log($"WatchPath = {watchPath}");
             Log($"ProjectPath = {projectPath}");
@@ -49,28 +42,22 @@ namespace AutoCommit
             Log($"DoPush = {doPush}");
             Log($"AutoCommit = {autoCommit}");
 
-            try
-            {
-                watcher = new FileSystemWatcher(watchPath, "*.*");
+            resetEvent = new ManualResetEventSlim(false);
 
-                watcher.Changed += Watcher_Changed; // all change events (+created, +deleted)
-                watcher.Renamed += Watcher_Changed;
+            watcher = new FileSystemWatcher(watchPath, "*.*");
 
-                watcher.IncludeSubdirectories = true;
-                watcher.EnableRaisingEvents = true;
+            watcher.Changed += Watcher_Changed; // alle change events (+created)
+            //watcher.Created += Watcher_Changed; // dateien erzeugen, bereits in changed
+            watcher.Deleted += Watcher_Changed; // directory ändert sich bei deleted
+            watcher.Renamed += Watcher_Changed;
 
-                timer = new Timer(Timer_Tick, null, 0, (int)TimeSpan.FromSeconds(commitInterval).TotalMilliseconds);
+            watcher.IncludeSubdirectories = true;
+            watcher.EnableRaisingEvents = true;
 
-                Log("Waiting for manual exit...");
-                resetEvent.Wait(); // wait for exit
-            }
-            catch(Exception ex)
-            {
-                Console.Error.WriteLine($"Exception occured: {ex.Message}");
-                return -1;
-            }
+            timer = new Timer(Timer_Tick, null, 0, (int)TimeSpan.FromSeconds(commitInterval).TotalMilliseconds);
 
-            return 0;
+            Log("ResetEvent wait...");
+            resetEvent.Wait();
         }
 
         private static bool Init()
@@ -79,7 +66,7 @@ namespace AutoCommit
                 watchPath = config["WatchPath"];
             else
             {
-                Log("WatchPath is missing...");
+                Console.WriteLine("WatchPath should be submitted in autocommit.conf");
                 return false;
             }
 
@@ -87,7 +74,7 @@ namespace AutoCommit
                 projectPath = config["ProjectPath"];
             else
             {
-                Log("ProjectPath is missing...");
+                Console.WriteLine("ProjectPath is missing...");
                 return false;
             }
 
@@ -144,11 +131,11 @@ namespace AutoCommit
                     Log("Git add exited with code: " + exit);
                 }
 
-                if (!autoCommit)
+                if(!autoCommit)
                 {
-                    // make some noise
-                    try { Console.Beep(); Console.Beep(); Console.Beep(); } catch (Exception) { }
-
+                    Console.Beep();
+                    Console.Beep();
+                    Console.Beep();
                     Log("Please input a commit message:");
                     string input = Console.ReadLine();
 
@@ -176,17 +163,17 @@ namespace AutoCommit
             }
         }
 
-        private static bool ReadConfig(string configFileName)
+        private static void ReadConfig(string configFileName)
         {
             if (File.Exists(configFileName))
             {
                 foreach (var line in File.ReadAllLines(configFileName))
                 {
                     var current = line;
-                    int comment = current.IndexOf('#'); // comments
+                    int comment = current.IndexOf('#');
 
                     if (comment != -1)
-                        current = current.Remove(comment); // remove everything after a hashtag
+                        current = current.Remove(comment);
 
                     if (current.Contains("="))
                     {
@@ -204,11 +191,7 @@ namespace AutoCommit
                             config.Add(key, value);
                     }
                 }
-
-                return true;
             }
-            else
-                return false;
         }
 
         static void Log(string message, [CallerMemberName] string memberName = "", [CallerFilePath] string sourceFilePath = "", [CallerLineNumber] int sourceLineNumber = 0)
